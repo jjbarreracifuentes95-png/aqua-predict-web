@@ -1,60 +1,107 @@
-/**
- * AQUA-PREDICT - Servidor Backend & Pasarela de Datos
- * Archivo: server.js
- * Descripción: Recibe datos del Broker MQTT (ESP32) y los retransmite 
- *              a la aplicación web mediante WebSockets.
- */
-
-// Importamos las librerías necesarias
-const mqtt = require('mqtt');
+const express = require('express');
+const http = require('http');
 const WebSocket = require('ws');
+const mqtt = require('mqtt');
+const mongoose = require('mongoose');
 
-// CONFIGURACIONES PRINCIPALES
-const MQTT_BROKER = 'mqtt://broker.hivemq.com:1883'; // Broker MQTT gratuito para pruebas
-const MQTT_TOPIC = 'aquapredict/mixco/tanque1/telemetria'; // Dirección donde publicará el ESP32
-const WS_PORT = 8080; // Puerto para la comunicación en tiempo real con la web
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
-// 1. INICIALIZAR EL SERVIDOR WEBSOCKET
-// Este servidor mantiene una puerta abierta para hablar directamente con el navegador
-const wss = new WebSocket.Server({ port: WS_PORT }, () => {
-  console.log(`[WebSocket] Servidor activo escuchando en ws://localhost:${WS_PORT}`);
+// Habilitar CORS y parseo de JSON
+app.use(express.json());
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  next();
 });
 
-// Función para enviar los datos a todas las pestañas de la web que estén abiertas
-function sendToWebClients(data) {
-  wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(data));
-    }
-  });
-}
+// 1. CONEXIÓN A MONGODB ATLAS
+// ============================================================================
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://jjbarreracifuentes95_db_user:wImDv0Bo2xBTViGU@cluster0.02qvazb.mongodb.net/aquapredict?retryWrites=true&w=majority";
 
-// 2. CONECTARSE AL BROKER MQTT
-const mqttClient = mqtt.connect(MQTT_BROKER);
+mongoose.connect(MONGO_URI)
+  .then(() => console.log('[MongoDB] Conectado exitosamente a la base de datos Atlas.'))
+  .catch(err => console.error('[MongoDB] Error de conexión:', err));
+
+// Definir el Esquema de Telemetría
+const TelemetrySchema = new mongoose.Schema({
+  device_id: String,
+  distance_cm: Number,
+  percentage: Number,
+  volume_liters: Number,
+  timestamp: { type: Date, default: Date.now }
+});
+
+const Telemetry = mongoose.model('Telemetry', TelemetrySchema);
+
+// 2. ENDPOINTS REST PARA HISTORIAL Y ESTADO INICIAL
+// ============================================================================
+// Endpoint para obtener la última lectura registrada
+app.get('/api/telemetry/latest', async (req, res) => {
+  try {
+    const latestData = await Telemetry.findOne().sort({ timestamp: -1 });
+    if (!latestData) {
+      return res.status(404).json({ message: 'No hay datos registrados aún.' });
+    }
+    res.json(latestData);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al consultar MongoDB' });
+  }
+});
+
+// Endpoint para obtener los últimos 10 registros (para la gráfica)
+app.get('/api/telemetry/history', async (req, res) => {
+  try {
+    const history = await Telemetry.find().sort({ timestamp: -1 }).limit(10);
+    res.json(history.reverse());
+  } catch (error) {
+    res.status(500).json({ error: 'Error al consultar historial' });
+  }
+});
+
+// 3. CONEXIÓN MQTT CON HIVEMQ
+// ============================================================================
+const MQTT_BROKER = 'broker.hivemq.com';
+const MQTT_TOPIC = 'aquapredict/mixco/tanque1/telemetria';
+const mqttClient = mqtt.connect(`mqtt://${MQTT_BROKER}:1883`);
 
 mqttClient.on('connect', () => {
-  console.log('[MQTT] Conectado exitosamente al Broker de mensajería');
-  
-  // Nos suscribimos al tópico para escuchar cuando el ESP32 envíe datos
-  mqttClient.subscribe(MQTT_TOPIC, (err) => {
-    if (!err) {
-      console.log(`[MQTT] Escuchando el tópico: ${MQTT_TOPIC}`);
-    }
-  });
+  console.log('[MQTT] Conectado exitosamente al Broker de mensajería HiveMQ');
+  mqttClient.subscribe(MQTT_TOPIC);
+  console.log(`[MQTT] Escuchando el tópico: ${MQTT_TOPIC}`);
 });
 
-// 3. RECEPCIÓN Y REENVÍO DE DATOS
-// Cada vez que el ESP32 envía un mensaje, se ejecuta este bloque
-mqttClient.on('message', (topic, message) => {
+mqttClient.on('message', async (topic, message) => {
   try {
-    // Convertimos el mensaje de texto JSON a un objeto JavaScript
-    const telemetryData = JSON.parse(message.toString());
-    console.log('[MQTT] Lectura recibida del sensor:', telemetryData);
+    const parsedData = JSON.parse(message.toString());
+    console.log('[MQTT] Lectura recibida:', parsedData);
 
-    // Retransmitimos los datos hacia el Dashboard Web de inmediato
-    sendToWebClients(telemetryData);
+    // Guardar persistencia en MongoDB Atlas
+    const newRecord = new Telemetry({
+      device_id: parsedData.device_id || 'ESP32_MIXCO_01',
+      distance_cm: parsedData.distance_cm,
+      percentage: parsedData.percentage,
+      volume_liters: parsedData.volume_liters,
+      timestamp: parsedData.timestamp ? new Date(parsedData.timestamp * 1000) : new Date()
+    });
+    await newRecord.save();
+    console.log('[MongoDB] Registro de telemetría guardado en base de datos.');
 
-  } catch (error) {
-    console.error('[Error] El mensaje recibido no es un JSON válido:', error.message);
+    // Retransmitir a clientes WebSocket conectados
+    wss.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(parsedData));
+      }
+    });
+  } catch (err) {
+    console.error('[Error] Fallo al procesar lectura MQTT:', err);
   }
+});
+
+// 4. INICIALIZACIÓN DEL SERVIDOR
+// ============================================================================
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`[WebSocket] Servidor activo escuchando en el puerto ${PORT}`);
 });

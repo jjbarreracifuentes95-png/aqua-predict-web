@@ -53,7 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 3. LÓGICA DE ACTUALIZACIÓN DE INTERFAZ (IDs Sincronizados con HTML)
+  // 3. ACTUALIZACIÓN DE INTERFAZ GRÁFICA
   // ============================================================================
   function updateDashboard(data) {
     const percentage = Math.max(0, Math.min(100, Number(data.percentage) || 0));
@@ -61,7 +61,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const distance = Number(data.distance_cm) || 0;
     const trr = (percentage * 0.24).toFixed(1);
 
-    // Mapeo directo a los IDs exactos de tu HTML
     const percentageEl = document.getElementById('metric-percentage');
     const volumeEl = document.getElementById('metric-volume');
     const trrEl = document.getElementById('metric-trr');
@@ -70,17 +69,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const tankTextEl = document.getElementById('tank-text');
     const statusBadge = document.getElementById('status-badge');
 
-    // Actualización de textos en pantalla
     if (percentageEl) percentageEl.textContent = `${percentage.toFixed(1)} %`;
     if (volumeEl) volumeEl.textContent = `${volume.toFixed(0)} L`;
     if (trrEl) trrEl.textContent = `${trr} hrs`;
     if (distanceEl) distanceEl.textContent = `${distance.toFixed(1)} cm`;
 
-    // Animación visual del tanque
     if (tankWaterEl) tankWaterEl.style.height = `${percentage}%`;
     if (tankTextEl) tankTextEl.textContent = `${percentage.toFixed(0)}%`;
 
-    // Estado global del sistema
     if (statusBadge) {
       if (percentage <= 20) {
         statusBadge.className = "px-3 py-1 text-xs rounded-full bg-red-500/20 text-red-400 border border-red-500/30 flex items-center gap-2";
@@ -94,7 +90,6 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    // Actualizar gráfica en tiempo real
     if (historyChart) {
       const timeLabel = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       if (historyChart.data.labels.length >= 10) {
@@ -107,25 +102,48 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // 4. CONEXIÓN WEBSOCKET CON BACKEND EN RENDER
+  // 4. CARGAR DATOS INICIALES DESDE MONGODB (REST API)
   // ============================================================================
-  const WS_URL = 'wss://aqua-predict-web.onrender.com';
-  console.log('[WebSocket] Conectando a:', WS_URL);
-  
-  const socket = new WebSocket(WS_URL);
+  async function loadInitialData() {
+    try {
+      // Cargar el último estado guardado
+      const latestRes = await fetch('https://aqua-predict-web.onrender.com/api/telemetry/latest');
+      if (latestRes.ok) {
+        const latestData = await latestRes.json();
+        updateDashboard(latestData);
+      }
 
-  socket.onopen = () => console.log('[WebSocket] Conectado exitosamente al servidor Backend.');
+      // Cargar historial reciente para la gráfica
+      const historyRes = await fetch('https://aqua-predict-web.onrender.com/api/telemetry/history');
+      if (historyRes.ok && historyChart) {
+        const historyData = await historyRes.json();
+        historyChart.data.labels = [];
+        historyChart.data.datasets[0].data = [];
+
+        historyData.forEach(item => {
+          const timeLabel = new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          historyChart.data.labels.push(timeLabel);
+          historyChart.data.datasets[0].data.push(item.percentage);
+        });
+        historyChart.update();
+      }
+    } catch (err) {
+      console.warn('[API] No se pudo recuperar el historial inicial:', err);
+    }
+  }
+
+  loadInitialData();
+
+  // 5. CONEXIÓN EN TIEMPO REAL (WEBSOCKETS)
+  // ============================================================================
+  const socket = new WebSocket('wss://aqua-predict-web.onrender.com');
 
   socket.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
-      console.log('[WebSocket] Lectura en tiempo real recibida:', data);
       updateDashboard(data);
     } catch (err) {
-      console.error('[WebSocket] Error al procesar mensaje JSON:', err);
+      console.error('[WebSocket] Error al parsear JSON:', err);
     }
   };
-
-  socket.onerror = (error) => console.error('[WebSocket] Error de conexión:', error);
-  socket.onclose = () => console.warn('[WebSocket] Conexión cerrada con el servidor.');
 });
