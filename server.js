@@ -3,18 +3,18 @@ const http = require('http');
 const WebSocket = require('ws');
 const mqtt = require('mqtt');
 const mongoose = require('mongoose');
+const cors = require('cors');
 
 const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
 
-// Habilitar CORS y parseo de JSON
+// Habilitar CORS explícito para Vercel y peticiones locales
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
+
 app.use(express.json());
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-  next();
-});
 
 // 1. CONEXIÓN A MONGODB ATLAS
 // ============================================================================
@@ -37,7 +37,6 @@ const Telemetry = mongoose.model('Telemetry', TelemetrySchema);
 
 // 2. ENDPOINTS REST PARA HISTORIAL Y ESTADO INICIAL
 // ============================================================================
-// Endpoint para obtener la última lectura registrada
 app.get('/api/telemetry/latest', async (req, res) => {
   try {
     const latestData = await Telemetry.findOne().sort({ timestamp: -1 });
@@ -50,7 +49,6 @@ app.get('/api/telemetry/latest', async (req, res) => {
   }
 });
 
-// Endpoint para obtener los últimos 10 registros (para la gráfica)
 app.get('/api/telemetry/history', async (req, res) => {
   try {
     const history = await Telemetry.find().sort({ timestamp: -1 }).limit(10);
@@ -60,7 +58,24 @@ app.get('/api/telemetry/history', async (req, res) => {
   }
 });
 
-// 3. CONEXIÓN MQTT CON HIVEMQ
+// Endpoint de prueba de salud
+app.get('/', (req, res) => {
+  res.send('AQUA-PREDICT Backend con MongoDB activo.');
+});
+
+// 3. CREAR SERVIDOR HTTP Y ATAR WEBSOCKET
+// ============================================================================
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ noServer: true });
+
+// Manejar la actualización de protocolo (Upgrade) de HTTP a WS limpiamente
+server.on('upgrade', (request, socket, head) => {
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit('connection', ws, request);
+  });
+});
+
+// 4. CONEXIÓN MQTT CON HIVEMQ
 // ============================================================================
 const MQTT_BROKER = 'broker.hivemq.com';
 const MQTT_TOPIC = 'aquapredict/mixco/tanque1/telemetria';
@@ -99,9 +114,9 @@ mqttClient.on('message', async (topic, message) => {
   }
 });
 
-// 4. INICIALIZACIÓN DEL SERVIDOR
+// 5. INICIALIZACIÓN DEL SERVIDOR
 // ============================================================================
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`[WebSocket] Servidor activo escuchando en el puerto ${PORT}`);
+  console.log(`[Servidor] AQUA-PREDICT corriendo en el puerto ${PORT}`);
 });

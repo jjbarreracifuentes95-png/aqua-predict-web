@@ -12,6 +12,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "cors": "^2.8.6",
     "mqtt": "^5.16.0",
     "ws": "^8.21.3"
   }
