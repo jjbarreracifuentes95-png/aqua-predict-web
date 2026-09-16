@@ -6,8 +6,11 @@
 // ============================================================================
 const currentUser = JSON.parse(localStorage.getItem('aqua_user'));
 
+// Redirección limpia considerando la ruta de Vercel/Servidor local
 if (!currentUser) {
-  window.location.href = 'login.html';
+  if (!window.location.pathname.endsWith('login.html')) {
+    window.location.replace('login.html');
+  }
 } else {
   const userNameEl = document.getElementById('user-name');
   const userRoleEl = document.getElementById('user-role');
@@ -19,7 +22,7 @@ const logoutBtn = document.getElementById('logout-btn');
 if (logoutBtn) {
   logoutBtn.addEventListener('click', () => {
     localStorage.removeItem('aqua_user');
-    window.location.href = 'login.html';
+    window.location.replace('login.html');
   });
 }
 
