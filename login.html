@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <!-- CONFIGURACIÓN DE META-DATOS -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AQUA-PREDICT | Iniciar Sesión</title>
+
+  <!-- RECURSOS EXTERNOS (CDNs) -->
+  <!-- 1. Tailwind CSS: Estilos modernos y responsivos -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- 2. FontAwesome: Iconos vectoriales -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex items-center justify-center p-4 font-sans">
+
+  <!-- CONTENEDOR PRINCIPAL DEL LOGIN (TARJETA CENTRADA) -->
+  <div class="w-full max-w-md bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl p-8 space-y-6">
+    
+    <!-- ENCABEZADO Y LOGO DE LA APLICACIÓN -->
+    <div class="text-center space-y-2">
+      <div class="inline-flex p-3 bg-blue-500/10 rounded-2xl text-blue-500 mb-2">
+        <i class="fa-solid fa-droplet text-4xl animate-bounce"></i>
+      </div>
+      <h1 class="text-2xl font-bold tracking-wide">AQUA-PREDICT</h1>
+      <p class="text-xs text-slate-400">Sistema de Monitoreo y Analítica Predictiva de Agua</p>
+    </div>
+
+    <!-- MENSAJE DE ERROR DINÁMICO (Oculto por defecto mediante Tailwind class "hidden") -->
+    <div id="error-alert" class="hidden bg-red-500/10 border border-red-500/30 text-red-400 text-xs p-3 rounded-lg flex items-center gap-2">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <span>Usuario o contraseña incorrectos. Por favor intenta de nuevo.</span>
+    </div>
+
+    <!-- FORMULARIO DE ACCESO -->
+    <form id="login-form" class="space-y-4">
+      
+      <!-- Campo: Correo Electrónico / Usuario -->
+      <div class="space-y-1">
+        <label for="email" class="text-xs font-semibold text-slate-300 uppercase tracking-wider">Correo Electrónico</label>
+        <div class="relative">
+          <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-500">
+            <i class="fa-solid fa-envelope text-sm"></i>
+          </span>
+          <input 
+            type="email" 
+            id="email" 
+            required
+            placeholder="usuario@aquapredict.gt" 
+            class="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-slate-600"
+          >
+        </div>
+      </div>
+
+      <!-- Campo: Contraseña -->
+      <div class="space-y-1">
+        <label for="password" class="text-xs font-semibold text-slate-300 uppercase tracking-wider">Contraseña</label>
+        <div class="relative">
+          <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-500">
+            <i class="fa-solid fa-lock text-sm"></i>
+          </span>
+          <input 
+            type="password" 
+            id="password" 
+            required
+            placeholder="••••••••" 
+            class="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-slate-600"
+          >
+        </div>
+      </div>
+
+      <!-- Botón de Envío -->
+      <button 
+        type="submit" 
+        class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2.5 rounded-lg text-sm transition-all duration-200 shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 mt-6"
+      >
+        <span>Ingresar al Dashboard</span>
+        <i class="fa-solid fa-arrow-right text-xs"></i>
+      </button>
+
+    </form>
+
+    <!-- PIE DE PÁGINA DE LA TARJETA -->
+    <div class="text-center pt-2 border-t border-slate-700/50">
+      <p class="text-[11px] text-slate-500">
+        Proyecto IoT & Bull; Módulo de Control Mixco
+      </p>
+    </div>
+
+  </div>
+
+  <!-- SCRIPT DE AUTENTICACIÓN -->
+  <script src="js/login.js"></script>
+</body>
+</html>
