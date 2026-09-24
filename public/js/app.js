@@ -47,7 +47,7 @@ const consumptionChart = new Chart(ctx, {
       },
       x: {
         grid: { color: '#334155' },
-        ticks: { color: '#94a3b8' }
+        ticks: { color: '#94a3b8', maxRotation: 45, minRotation: 0 }
       }
     },
     plugins: {
@@ -60,12 +60,10 @@ const consumptionChart = new Chart(ctx, {
 // CONTROL DEL SEMÁFORO LED VIRTUAL
 // ==========================================
 function updateLeds(percentage) {
-  // Apagar/Resetear todos los leds a estado inactivo
   if (ledGreen) ledGreen.className = "w-5 h-5 rounded-full bg-slate-700 border border-slate-600 transition-all duration-300";
   if (ledYellow) ledYellow.className = "w-5 h-5 rounded-full bg-slate-700 border border-slate-600 transition-all duration-300";
   if (ledRed) ledRed.className = "w-5 h-5 rounded-full bg-slate-700 border border-slate-600 transition-all duration-300";
 
-  // Encender según nivel de agua
   if (percentage > 50) {
     if (ledGreen) ledGreen.className = "w-5 h-5 rounded-full bg-emerald-500 border border-emerald-400 shadow-[0_0_12px_#10b981] transition-all duration-300";
   } else if (percentage >= 20) {
@@ -100,17 +98,26 @@ function updateUI(data) {
     tankText.innerText = `${percentage}%`;
   }
 
-  // 3. Encender LED virtual correspondiente
+  // 3. Semáforo LED
   updateLeds(Number(percentage));
 
-  // 4. Gráfica en tiempo real
-  const timeLabel = new Date(data.timestamp || Date.now()).toLocaleTimeString([], {
+  // 4. Formatear la Hora dinámicamente desde el cliente/servidor
+  let dateObj;
+  if (data.timestamp && !isNaN(new Date(data.timestamp).getTime())) {
+    dateObj = new Date(data.timestamp);
+  } else {
+    dateObj = new Date(); // Toma la hora del sistema actual
+  }
+
+  const timeLabel = dateObj.toLocaleTimeString('es-GT', {
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit'
+    second: '2-digit',
+    hour12: true
   });
 
-  if (consumptionChart.data.labels.length >= 12) {
+  // Mantener solo los últimos 10 datos en la gráfica
+  if (consumptionChart.data.labels.length >= 10) {
     consumptionChart.data.labels.shift();
     consumptionChart.data.datasets[0].data.shift();
   }
@@ -129,7 +136,7 @@ async function loadHistory() {
     if (!res.ok) throw new Error("Error consultando API");
     const history = await res.json();
     
-    if (Array.isArray(history)) {
+    if (Array.isArray(history) && history.length > 0) {
       history.forEach(item => updateUI(item));
     }
   } catch (err) {
@@ -146,7 +153,7 @@ function initWebSocket() {
   const ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
-    console.log("[WS] Conectado al servidor en tiempo real");
+    console.log("[WS] Conectado al servidor");
     if (statusBadge) {
       statusBadge.className = "px-3 py-1 text-xs rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-2";
       statusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Sistema En Vivo`;
@@ -156,15 +163,13 @@ function initWebSocket() {
   ws.onmessage = (event) => {
     try {
       const liveData = JSON.parse(event.data);
-      console.log("[WS Data]:", liveData);
       updateUI(liveData);
     } catch (e) {
-      console.error("[WS Error de parseo]:", e);
+      console.error("[WS Error]:", e);
     }
   };
 
   ws.onclose = () => {
-    console.warn("[WS] Conexión cerrada. Reintentando en 3s...");
     if (statusBadge) {
       statusBadge.className = "px-3 py-1 text-xs rounded-full bg-red-500/20 text-red-400 border border-red-500/30 flex items-center gap-2";
       statusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-red-400"></span> Desconectado`;
