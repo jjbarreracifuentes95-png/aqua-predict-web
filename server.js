@@ -33,10 +33,14 @@ const TelemetrySchema = new mongoose.Schema({
   distance_cm: Number,
   percentage: Number,
   volume_liters: Number,
+  trr_hours: Number,
   timestamp: { type: Date, default: Date.now }
 });
 
 const Telemetry = mongoose.model("Telemetry", TelemetrySchema);
+
+// Variable global para cálculo de flujo/descarga (TRR)
+let lastTelemetry = null;
 
 // ENDPOINTS DE LA API REST
 app.get("/api/telemetry/latest", async (req, res) => {
@@ -87,27 +91,42 @@ mqttClient.on("message", async (topic, message) => {
     const parsedData = JSON.parse(message.toString());
     console.log("[MQTT] Lectura recibida:", parsedData);
 
-    let dateObj = new Date();
-    if (parsedData.timestamp) {
-      const ts = Number(parsedData.timestamp);
-      dateObj = ts > 10000000000 ? new Date(ts) : new Date(ts * 1000);
+    const now = new Date();
+    const currentVolume = Number(parsedData.volume_liters) || 0;
+    let trrHours = 24.0; // Valor base por defecto
+
+    // Lógica Predictiva: Calcular consumo basado en el delta de tiempo y volumen
+    if (lastTelemetry && lastTelemetry.volume_liters > currentVolume) {
+      const volumeDelta = lastTelemetry.volume_liters - currentVolume; // Litros consumidos
+      const timeDeltaHours = (now - new Date(lastTelemetry.timestamp)) / (1000 * 60 * 60); // Horas transcurridas
+
+      if (timeDeltaHours > 0 && volumeDelta > 0) {
+        const consumptionRate = volumeDelta / timeDeltaHours; // Litros por hora
+        trrHours = Number((currentVolume / consumptionRate).toFixed(1));
+      }
     }
 
-    const newRecord = new Telemetry({
+    // Crear el objeto estandarizado con la FECHA REAL ACTUAL del servidor
+    const telemetryToSave = {
       device_id: parsedData.device_id || "ESP32_MIXCO_01",
       distance_cm: Number(parsedData.distance_cm) || 0,
       percentage: Number(parsedData.percentage) || 0,
-      volume_liters: Number(parsedData.volume_liters) || 0,
-      timestamp: dateObj
-    });
+      volume_liters: currentVolume,
+      trr_hours: trrHours,
+      timestamp: now
+    };
 
+    const newRecord = new Telemetry(telemetryToSave);
     const saved = await newRecord.save();
     console.log("[MongoDB] Guardado en Atlas con ID:", saved._id);
 
-    // Emitir a todos los clientes web conectados por WebSocket
+    // Actualizar última lectura
+    lastTelemetry = saved;
+
+    // Emitir el objeto ESTANDARIZADO a los clientes WebSocket
     wss.clients.forEach(client => {
       if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(parsedData));
+        client.send(JSON.stringify(saved));
       }
     });
   } catch (err) {
