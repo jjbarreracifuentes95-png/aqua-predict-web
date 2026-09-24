@@ -1,149 +1,158 @@
-/**
- * AQUA-PREDICT - Sistema de Monitoreo y Analítica Predictiva de Agua
- * Archivo: public/js/app.js
- */
+// ==========================================
+// CONFIGURACIÓN DE ELEMENTOS DEL DOM
+// ==========================================
+const metricPercentage = document.getElementById('metric-percentage');
+const metricVolume = document.getElementById('metric-volume');
+const metricDistance = document.getElementById('metric-distance');
+const metricTrr = document.getElementById('metric-trr');
+const tankWater = document.getElementById('tank-water');
+const tankText = document.getElementById('tank-text');
+const statusBadge = document.getElementById('status-badge');
+const logoutBtn = document.getElementById('logout-btn');
 
-// 1. CONTROL DE ACCESO (AUTENTICACIÓN)
-// ============================================================================
-const currentUser = JSON.parse(localStorage.getItem('aqua_user'));
+// ==========================================
+// INICIALIZACIÓN DE CHART.JS
+// ==========================================
+const ctx = document.getElementById('consumptionChart').getContext('2d');
+const consumptionChart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [{
+      label: 'Nivel del Tanque (%)',
+      data: [],
+      borderColor: '#3b82f6', // Tailwind blue-500
+      backgroundColor: 'rgba(59, 130, 246, 0.1)',
+      borderWidth: 2,
+      fill: true,
+      tension: 0.3,
+      pointRadius: 4,
+      pointBackgroundColor: '#60a5fa'
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      y: {
+        min: 0,
+        max: 100,
+        grid: { color: '#334155' },
+        ticks: { color: '#94a3b8', callback: (val) => `${val}%` }
+      },
+      x: {
+        grid: { color: '#334155' },
+        ticks: { color: '#94a3b8' }
+      }
+    },
+    plugins: {
+      legend: { labels: { color: '#f8fafc' } }
+    }
+  }
+});
 
-if (!currentUser) {
-  if (!window.location.pathname.endsWith('login.html')) {
-    window.location.replace('login.html');
+// ==========================================
+// LÓGICA DE ACTUALIZACIÓN DE LA INTERFAZ
+// ==========================================
+function updateUI(data) {
+  const percentage = Number(data.percentage || 0).toFixed(1);
+  const volume = Math.round(Number(data.volume_liters || 0));
+  const distance = Number(data.distance_cm || 0).toFixed(1);
+
+  // 1. Tarjetas de métricas (KPIs)
+  if (metricPercentage) metricPercentage.innerText = `${percentage} %`;
+  if (metricVolume) metricVolume.innerText = `${volume} L`;
+  if (metricDistance) metricDistance.innerText = `${distance} cm`;
+
+  // Estimación TRR básica (ejemplo: asumiendo consumo promedio)
+  if (metricTrr) {
+    const estimatedHours = ((volume / 1000) * 24).toFixed(1); // Cálculo demostrativo
+    metricTrr.innerText = `${estimatedHours} hrs`;
+  }
+
+  // 2. Tanque animado
+  if (tankWater && tankText) {
+    tankWater.style.height = `${percentage}%`;
+    tankText.innerText = `${percentage}%`;
+  }
+
+  // 3. Gráfica en tiempo real
+  const timeLabel = new Date(data.timestamp || Date.now()).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+
+  if (consumptionChart.data.labels.length >= 12) {
+    consumptionChart.data.labels.shift();
+    consumptionChart.data.datasets[0].data.shift();
+  }
+
+  consumptionChart.data.labels.push(timeLabel);
+  consumptionChart.data.datasets[0].data.push(percentage);
+  consumptionChart.update();
+}
+
+// ==========================================
+// CARGA INICIAL (HISTORIAL DE MONGODB)
+// ==========================================
+async function loadHistory() {
+  try {
+    const res = await fetch('/api/telemetry/history');
+    if (!res.ok) throw new Error("Error consultando API");
+    const history = await res.json();
+    
+    if (Array.isArray(history)) {
+      history.forEach(item => updateUI(item));
+    }
+  } catch (err) {
+    console.error("[API Error]:", err.message);
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  const logoutBtn = document.getElementById('logout-btn');
-  if (logoutBtn) {
-    logoutBtn.addEventListener('click', () => {
-      localStorage.removeItem('aqua_user');
-      window.location.replace('login.html');
-    });
-  }
+// ==========================================
+// CONEXIÓN WEBSOCKET EN TIEMPO REAL
+// ==========================================
+function initWebSocket() {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}`;
+  const ws = new WebSocket(wsUrl);
 
-  // 2. INICIALIZACIÓN DE CHART.JS
-  // ============================================================================
-  const ctx = document.getElementById('consumptionChart')?.getContext('2d');
-  let historyChart = null;
-
-  if (ctx) {
-    historyChart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: [{
-          label: 'Nivel del Tanque (%)',
-          data: [],
-          borderColor: '#3b82f6',
-          backgroundColor: 'rgba(59, 130, 246, 0.1)',
-          fill: true,
-          tension: 0.4
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          y: { min: 0, max: 100, grid: { color: '#334155' } },
-          x: { grid: { color: '#334155' } }
-        },
-        plugins: { legend: { labels: { color: '#f8fafc' } } }
-      }
-    });
-  }
-
-  // 3. ACTUALIZACIÓN DE INTERFAZ GRÁFICA
-  // ============================================================================
-  function updateDashboard(data) {
-    const percentage = Math.max(0, Math.min(100, Number(data.percentage) || 0));
-    const volume = Number(data.volume_liters) || 0;
-    const distance = Number(data.distance_cm) || 0;
-    const trr = (percentage * 0.24).toFixed(1);
-
-    const percentageEl = document.getElementById('metric-percentage');
-    const volumeEl = document.getElementById('metric-volume');
-    const trrEl = document.getElementById('metric-trr');
-    const distanceEl = document.getElementById('metric-distance');
-    const tankWaterEl = document.getElementById('tank-water');
-    const tankTextEl = document.getElementById('tank-text');
-    const statusBadge = document.getElementById('status-badge');
-
-    if (percentageEl) percentageEl.textContent = `${percentage.toFixed(1)} %`;
-    if (volumeEl) volumeEl.textContent = `${volume.toFixed(0)} L`;
-    if (trrEl) trrEl.textContent = `${trr} hrs`;
-    if (distanceEl) distanceEl.textContent = `${distance.toFixed(1)} cm`;
-
-    if (tankWaterEl) tankWaterEl.style.height = `${percentage}%`;
-    if (tankTextEl) tankTextEl.textContent = `${percentage.toFixed(0)}%`;
-
+  ws.onopen = () => {
+    console.log("[WS] Conectado al servidor en tiempo real");
     if (statusBadge) {
-      if (percentage <= 20) {
-        statusBadge.className = "px-3 py-1 text-xs rounded-full bg-red-500/20 text-red-400 border border-red-500/30 flex items-center gap-2";
-        statusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-red-400 animate-pulse"></span> Alerta Crítica`;
-      } else if (percentage <= 50) {
-        statusBadge.className = "px-3 py-1 text-xs rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-2";
-        statusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span> Nivel Moderado`;
-      } else {
-        statusBadge.className = "px-3 py-1 text-xs rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-2";
-        statusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Sistema Normal`;
-      }
-    }
-
-    if (historyChart) {
-      const timeLabel = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      if (historyChart.data.labels.length >= 10) {
-        historyChart.data.labels.shift();
-        historyChart.data.datasets[0].data.shift();
-      }
-      historyChart.data.labels.push(timeLabel);
-      historyChart.data.datasets[0].data.push(percentage);
-      historyChart.update();
-    }
-  }
-
-  // 4. CARGAR DATOS INICIALES DESDE MONGODB (REST API)
-  // ============================================================================
-  async function loadInitialData() {
-    try {
-      // Cargar el último estado guardado
-      const latestRes = await fetch('https://aqua-predict-web.onrender.com/api/telemetry/latest');
-      if (latestRes.ok) {
-        const latestData = await latestRes.json();
-        updateDashboard(latestData);
-      }
-
-      // Cargar historial reciente para la gráfica
-      const historyRes = await fetch('https://aqua-predict-web.onrender.com/api/telemetry/history');
-      if (historyRes.ok && historyChart) {
-        const historyData = await historyRes.json();
-        historyChart.data.labels = [];
-        historyChart.data.datasets[0].data = [];
-
-        historyData.forEach(item => {
-          const timeLabel = new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-          historyChart.data.labels.push(timeLabel);
-          historyChart.data.datasets[0].data.push(item.percentage);
-        });
-        historyChart.update();
-      }
-    } catch (err) {
-      console.warn('[API] No se pudo recuperar el historial inicial:', err);
-    }
-  }
-
-  loadInitialData();
-
-  // 5. CONEXIÓN EN TIEMPO REAL (WEBSOCKETS)
-  // ============================================================================
-  const socket = new WebSocket('wss://aqua-predict-web.onrender.com');
-
-  socket.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      updateDashboard(data);
-    } catch (err) {
-      console.error('[WebSocket] Error al parsear JSON:', err);
+      statusBadge.className = "px-3 py-1 text-xs rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-2";
+      statusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Sistema En Vivo`;
     }
   };
-});
+
+  ws.onmessage = (event) => {
+    try {
+      const liveData = JSON.parse(event.data);
+      console.log("[WS Data]:", liveData);
+      updateUI(liveData);
+    } catch (e) {
+      console.error("[WS Error de parseo]:", e);
+    }
+  };
+
+  ws.onclose = () => {
+    console.warn("[WS] Conexión cerrada. Reintentando en 3s...");
+    if (statusBadge) {
+      statusBadge.className = "px-3 py-1 text-xs rounded-full bg-red-500/20 text-red-400 border border-red-500/30 flex items-center gap-2";
+      statusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-red-400"></span> Desconectado`;
+    }
+    setTimeout(initWebSocket, 3000);
+  };
+}
+
+// Botón de logout (redirección a login.html si existe)
+if (logoutBtn) {
+  logoutBtn.addEventListener('click', () => {
+    window.location.href = 'login.html';
+  });
+}
+
+// Inicializar
+loadHistory();
+initWebSocket();

@@ -1,9 +1,12 @@
+require("dotenv").config();
+
 const express = require("express");
 const http = require("http");
 const WebSocket = require("ws");
 const mqtt = require("mqtt");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const path = require("path");
 
 const app = express();
 
@@ -15,7 +18,11 @@ app.use(cors({
 
 app.use(express.json());
 
-const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://jjbarreracifuentes95_db_user:wImDv0Bo2xBTViGU@cluster0.02qvazb.mongodb.net/aquapredict?retryWrites=true&w=majority";
+// SERVIR ARCHIVOS ESTÁTICOS (HTML, CSS, JS del Frontend)
+app.use(express.static(path.join(__dirname, "public")));
+
+// Cadena de conexión MongoDB Atlas
+const MONGO_URI = process.env.MONGODB_URI || "mongodb+srv://admin:admin1234@cluster0.02qvazb.mongodb.net/aquapredict?retryWrites=true&w=majority";
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log("[MongoDB] Conectado exitosamente a la base de datos Atlas."))
@@ -31,6 +38,7 @@ const TelemetrySchema = new mongoose.Schema({
 
 const Telemetry = mongoose.model("Telemetry", TelemetrySchema);
 
+// ENDPOINTS DE LA API REST
 app.get("/api/telemetry/latest", async (req, res) => {
   try {
     const latestData = await Telemetry.findOne().sort({ timestamp: -1 });
@@ -50,8 +58,9 @@ app.get("/api/telemetry/history", async (req, res) => {
   }
 });
 
+// Ruta principal para servir la interfaz web
 app.get("/", (req, res) => {
-  res.send("AQUA-PREDICT Backend Activo");
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 const server = http.createServer(app);
@@ -63,6 +72,7 @@ server.on("upgrade", (request, socket, head) => {
   });
 });
 
+// CLIENTE MQTT Y CONEXIÓN EN TIEMPO REAL
 const MQTT_BROKER = "broker.hivemq.com";
 const MQTT_TOPIC = "aquapredict/mixco/tanque1/telemetria";
 const mqttClient = mqtt.connect(`mqtt://${MQTT_BROKER}:1883`);
@@ -94,6 +104,7 @@ mqttClient.on("message", async (topic, message) => {
     const saved = await newRecord.save();
     console.log("[MongoDB] Guardado en Atlas con ID:", saved._id);
 
+    // Emitir a todos los clientes web conectados por WebSocket
     wss.clients.forEach(client => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify(parsedData));
