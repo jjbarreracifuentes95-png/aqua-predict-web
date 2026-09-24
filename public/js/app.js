@@ -76,7 +76,7 @@ function updateLeds(percentage) {
 // ==========================================
 // LÓGICA DE ACTUALIZACIÓN DE LA INTERFAZ
 // ==========================================
-function updateUI(data) {
+function updateUI(data, isLive = false) {
   const percentage = Number(data.percentage || 0).toFixed(1);
   const volume = Math.round(Number(data.volume_liters || 0));
   const distance = Number(data.distance_cm || 0).toFixed(1);
@@ -101,29 +101,36 @@ function updateUI(data) {
   // 3. Semáforo LED
   updateLeds(Number(percentage));
 
-  // 4. Formatear la Hora dinámicamente desde el cliente/servidor
-  let dateObj;
-  if (data.timestamp && !isNaN(new Date(data.timestamp).getTime())) {
-    dateObj = new Date(data.timestamp);
+  // 4. Generar hora actual si es un evento en vivo (WebSocket) o formatear la recibida
+  let timeLabel = "";
+  if (isLive || !data.timestamp) {
+    timeLabel = new Date().toLocaleTimeString('es-GT', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    });
   } else {
-    dateObj = new Date(); // Toma la hora del sistema actual
+    const parsedDate = new Date(data.timestamp);
+    timeLabel = !isNaN(parsedDate.getTime()) 
+      ? parsedDate.toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+      : new Date().toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
   }
 
-  const timeLabel = dateObj.toLocaleTimeString('es-GT', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true
-  });
-
-  // Mantener solo los últimos 10 datos en la gráfica
-  if (consumptionChart.data.labels.length >= 10) {
-    consumptionChart.data.labels.shift();
-    consumptionChart.data.datasets[0].data.shift();
+  // Evitar duplicar consecutivamente la misma etiqueta en el eje X
+  const lastLabel = consumptionChart.data.labels[consumptionChart.data.labels.length - 1];
+  if (lastLabel === timeLabel && consumptionChart.data.labels.length > 0) {
+    // Si la hora es idéntica a la anterior, actualiza solo el último valor
+    consumptionChart.data.datasets[0].data[consumptionChart.data.datasets[0].data.length - 1] = percentage;
+  } else {
+    if (consumptionChart.data.labels.length >= 10) {
+      consumptionChart.data.labels.shift();
+      consumptionChart.data.datasets[0].data.shift();
+    }
+    consumptionChart.data.labels.push(timeLabel);
+    consumptionChart.data.datasets[0].data.push(percentage);
   }
 
-  consumptionChart.data.labels.push(timeLabel);
-  consumptionChart.data.datasets[0].data.push(percentage);
   consumptionChart.update();
 }
 
@@ -137,7 +144,9 @@ async function loadHistory() {
     const history = await res.json();
     
     if (Array.isArray(history) && history.length > 0) {
-      history.forEach(item => updateUI(item));
+      // Tomar únicamente los últimos 10 registros guardados
+      const recentHistory = history.slice(-10);
+      recentHistory.forEach(item => updateUI(item, false));
     }
   } catch (err) {
     console.error("[API Error]:", err.message);
@@ -163,7 +172,8 @@ function initWebSocket() {
   ws.onmessage = (event) => {
     try {
       const liveData = JSON.parse(event.data);
-      updateUI(liveData);
+      // Forzar que los datos en vivo marquen la hora actual del cliente
+      updateUI(liveData, true);
     } catch (e) {
       console.error("[WS Error]:", e);
     }
