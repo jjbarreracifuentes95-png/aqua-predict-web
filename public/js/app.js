@@ -10,6 +10,11 @@ const tankText = document.getElementById('tank-text');
 const statusBadge = document.getElementById('status-badge');
 const logoutBtn = document.getElementById('logout-btn');
 
+// LEDs Virtuales del Dashboard
+const ledGreen = document.getElementById('led-green');
+const ledYellow = document.getElementById('led-yellow');
+const ledRed = document.getElementById('led-red');
+
 // ==========================================
 // INICIALIZACIÓN DE CHART.JS
 // ==========================================
@@ -21,7 +26,7 @@ const consumptionChart = new Chart(ctx, {
     datasets: [{
       label: 'Nivel del Tanque (%)',
       data: [],
-      borderColor: '#3b82f6', // Tailwind blue-500
+      borderColor: '#3b82f6',
       backgroundColor: 'rgba(59, 130, 246, 0.1)',
       borderWidth: 2,
       fill: true,
@@ -52,6 +57,25 @@ const consumptionChart = new Chart(ctx, {
 });
 
 // ==========================================
+// CONTROL DEL SEMÁFORO LED VIRTUAL
+// ==========================================
+function updateLeds(percentage) {
+  // Apagar/Resetear todos los leds a estado inactivo
+  if (ledGreen) ledGreen.className = "w-5 h-5 rounded-full bg-slate-700 border border-slate-600 transition-all duration-300";
+  if (ledYellow) ledYellow.className = "w-5 h-5 rounded-full bg-slate-700 border border-slate-600 transition-all duration-300";
+  if (ledRed) ledRed.className = "w-5 h-5 rounded-full bg-slate-700 border border-slate-600 transition-all duration-300";
+
+  // Encender según nivel de agua
+  if (percentage > 50) {
+    if (ledGreen) ledGreen.className = "w-5 h-5 rounded-full bg-emerald-500 border border-emerald-400 shadow-[0_0_12px_#10b981] transition-all duration-300";
+  } else if (percentage >= 20) {
+    if (ledYellow) ledYellow.className = "w-5 h-5 rounded-full bg-amber-500 border border-amber-400 shadow-[0_0_12px_#f59e0b] transition-all duration-300";
+  } else {
+    if (ledRed) ledRed.className = "w-5 h-5 rounded-full bg-red-500 border border-red-400 shadow-[0_0_12px_#ef4444] animate-pulse transition-all duration-300";
+  }
+}
+
+// ==========================================
 // LÓGICA DE ACTUALIZACIÓN DE LA INTERFAZ
 // ==========================================
 function updateUI(data) {
@@ -64,9 +88,9 @@ function updateUI(data) {
   if (metricVolume) metricVolume.innerText = `${volume} L`;
   if (metricDistance) metricDistance.innerText = `${distance} cm`;
 
-  // Estimación TRR básica (ejemplo: asumiendo consumo promedio)
+  // Estimación TRR
   if (metricTrr) {
-    const estimatedHours = ((volume / 1000) * 24).toFixed(1); // Cálculo demostrativo
+    const estimatedHours = ((volume / 1000) * 24).toFixed(1);
     metricTrr.innerText = `${estimatedHours} hrs`;
   }
 
@@ -76,7 +100,10 @@ function updateUI(data) {
     tankText.innerText = `${percentage}%`;
   }
 
-  // 3. Gráfica en tiempo real
+  // 3. Encender LED virtual correspondiente
+  updateLeds(Number(percentage));
+
+  // 4. Gráfica en tiempo real
   const timeLabel = new Date(data.timestamp || Date.now()).toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
@@ -146,7 +173,6 @@ function initWebSocket() {
   };
 }
 
-// Botón de logout (redirección a login.html si existe)
 if (logoutBtn) {
   logoutBtn.addEventListener('click', () => {
     window.location.href = 'login.html';
