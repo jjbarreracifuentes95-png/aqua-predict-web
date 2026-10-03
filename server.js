@@ -11,11 +11,11 @@ const path = require("path");
 const app = express();
 
 // ==========================================
-// PARÁMETROS DEL TANQUE DE PRUEBA (22cm / 350ml / 1cm offset)
+// PARÁMETROS DEL TANQUE DE PRUEBA
 // ==========================================
-const TANK_HEIGHT_CM = 17.0;    // Altura del tanque
-const SENSOR_OFFSET_CM = 2.5;   // Distancia del sensor al nivel máximo de agua
-const MAX_VOLUME_LITERS = 1.750; // Capacidad máxima 
+const TANK_HEIGHT_CM = 17.0;    // Altura útil del tanque
+const SENSOR_OFFSET_CM = 2.5;   // Distancia del sensor al nivel máximo (offset)
+const MAX_VOLUME_LITERS = 1.750; // Capacidad máxima (1.75 Litros)
 
 app.use(cors({
   origin: "*",
@@ -98,13 +98,13 @@ mqttClient.on("message", async (topic, message) => {
 
     const rawDistance = Number(parsedData.distance_cm) || 0;
 
-    // --- CÁLCULO AJUSTADO (22cm / 1cm offset / 0.35L) ---
+    // --- CÁLCULO AJUSTADO (17cm / 2.5cm offset / 1.75L) ---
     let waterHeight = TANK_HEIGHT_CM - (rawDistance - SENSOR_OFFSET_CM);
     if (waterHeight < 0) waterHeight = 0;
     if (waterHeight > TANK_HEIGHT_CM) waterHeight = TANK_HEIGHT_CM;
 
     const calculatedPercentage = Number(((waterHeight / TANK_HEIGHT_CM) * 100).toFixed(1));
-    const calculatedVolume = Number(((calculatedPercentage / 100) * MAX_VOLUME_LITERS).toFixed(3)); // Muestra hasta mililitros
+    const calculatedVolume = Number(((calculatedPercentage / 100) * MAX_VOLUME_LITERS).toFixed(3));
 
     const now = new Date();
     let trrHours = 24.0;
@@ -148,3 +148,4 @@ mqttClient.on("message", async (topic, message) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`[Servidor] AQUA-PREDICT escuchando en el puerto ${PORT}`);
+});
