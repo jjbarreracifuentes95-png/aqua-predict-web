@@ -13,9 +13,9 @@ const app = express();
 // ==========================================
 // PARÁMETROS DEL TANQUE DE PRUEBA (22cm / 350ml / 1cm offset)
 // ==========================================
-const TANK_HEIGHT_CM = 22.0;    // Altura del tanque
-const SENSOR_OFFSET_CM = 1.0;   // Distancia del sensor al nivel máximo de agua
-const MAX_VOLUME_LITERS = 0.35; // Capacidad máxima (350ml en litros)
+const TANK_HEIGHT_CM = 24.0;    // Altura del tanque
+const SENSOR_OFFSET_CM = 2.0;   // Distancia del sensor al nivel máximo de agua
+const MAX_VOLUME_LITERS = 1.00; // Capacidad máxima 
 
 app.use(cors({
   origin: "*",
@@ -148,4 +148,3 @@ mqttClient.on("message", async (topic, message) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`[Servidor] AQUA-PREDICT escuchando en el puerto ${PORT}`);
-});
