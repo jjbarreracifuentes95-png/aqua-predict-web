@@ -13,9 +13,9 @@ const app = express();
 // ==========================================
 // PARÁMETROS DEL TANQUE DE PRUEBA
 // ==========================================
-const TANK_HEIGHT_CM = 17.0;    // Altura útil del tanque
-const SENSOR_OFFSET_CM = 2.5;   // Distancia del sensor al nivel máximo (offset)
-const MAX_VOLUME_LITERS = 1.750; // Capacidad máxima (1.75 Litros)
+const TANK_HEIGHT_CM = 170.0;    // Altura útil del tanque
+const SENSOR_OFFSET_CM = 10.00;   // Distancia del sensor al nivel máximo (offset)
+const MAX_VOLUME_LITERS = 500.00; // Capacidad máxima (1.75 Litros)
 
 app.use(cors({
   origin: "*",
