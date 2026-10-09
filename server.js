@@ -7,6 +7,7 @@ const mqtt = require("mqtt");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const path = require("path");
+const https = require("https");
 
 const app = express();
 
@@ -16,6 +17,47 @@ const app = express();
 const TANK_HEIGHT_CM = 170.0;    // Altura útil del tanque
 const SENSOR_OFFSET_CM = 10.00;   // Distancia del sensor al nivel máximo (offset)
 const MAX_VOLUME_LITERS = 50.00; // Capacidad máxima (50 Litros)
+
+// Configuración de Telegram
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+let lastAlertTime = 0; // Control antispam para alertas
+
+// Función helper para enviar mensajes por Telegram
+function sendTelegramAlert(message) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+    console.log("[Telegram] Token o Chat ID no configurados.");
+    return;
+  }
+
+  const postData = JSON.stringify({
+    chat_id: TELEGRAM_CHAT_ID,
+    text: message,
+    parse_mode: "Markdown"
+  });
+
+  const options = {
+    hostname: "api.telegram.org",
+    port: 443,
+    path: `/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(postData)
+    }
+  };
+
+  const req = https.request(options, (res) => {
+    res.on("data", () => {});
+  });
+
+  req.on("error", (e) => {
+    console.error("[Telegram Error]:", e.message);
+  });
+
+  req.write(postData);
+  req.end();
+}
 
 app.use(cors({
   origin: "*",
@@ -185,95 +227,4 @@ app.post("/api/chat", async (req, res) => {
           reply = `🟢 **Estado Normal:** El nivel del tanque es óptimo (${porcentaje}%). Semáforo en VERDE.`;
         }
       } else {
-        reply = `Entendido. Te informo que el tanque está al **${porcentaje}%** (${volumen}L) con una reserva estimada de **${trr} hrs**.`;
-      }
-    }
-
-    res.json({ reply });
-  } catch (error) {
-    console.error("[Chat API Error]:", error);
-    res.status(500).json({ reply: "Ocurrió un error al consultar la base de datos." });
-  }
-});
-
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
-});
-
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ noServer: true });
-
-server.on("upgrade", (request, socket, head) => {
-  wss.handleUpgrade(request, socket, head, (ws) => {
-    wss.emit("connection", ws, request);
-  });
-});
-
-// CLIENTE MQTT Y LÓGICA EN TIEMPO REAL
-const MQTT_BROKER = "broker.hivemq.com";
-const MQTT_TOPIC = "aquapredict/mixco/tanque1/telemetria";
-const mqttClient = mqtt.connect(`mqtt://${MQTT_BROKER}:1883`);
-
-mqttClient.on("connect", () => {
-  console.log("[MQTT] Conectado exitosamente a HiveMQ");
-  mqttClient.subscribe(MQTT_TOPIC);
-});
-
-mqttClient.on("message", async (topic, message) => {
-  try {
-    const parsedData = JSON.parse(message.toString());
-    console.log("[MQTT] Lectura recibida:", parsedData);
-
-    const rawDistance = Number(parsedData.distance_cm) || 0;
-
-    // --- CÁLCULO AJUSTADO ---
-    let waterHeight = TANK_HEIGHT_CM - (rawDistance + SENSOR_OFFSET_CM);
-    if (waterHeight < 0) waterHeight = 0;
-    if (waterHeight > TANK_HEIGHT_CM) waterHeight = TANK_HEIGHT_CM;
-
-    const calculatedPercentage = Number(((waterHeight / TANK_HEIGHT_CM) * 100).toFixed(1));
-    const calculatedVolume = Number(((calculatedPercentage / 100) * MAX_VOLUME_LITERS).toFixed(3));
-
-    const now = new Date();
-    let trrHours = Number((calculatedVolume / 2.0).toFixed(1)); 
-
-    // Lógica Predictiva (TRR)
-    if (lastTelemetry && lastTelemetry.volume_liters > calculatedVolume) {
-      const volumeDelta = lastTelemetry.volume_liters - calculatedVolume;
-      const timeDeltaHours = (now - new Date(lastTelemetry.timestamp)) / (1000 * 60 * 60);
-
-      if (timeDeltaHours > 0 && volumeDelta > 0) {
-        const consumptionRate = volumeDelta / timeDeltaHours;
-        trrHours = Number((calculatedVolume / consumptionRate).toFixed(1));
-      }
-    }
-
-    const telemetryToSave = {
-      device_id: parsedData.device_id || "ESP32_MIXCO_01",
-      distance_cm: rawDistance,
-      percentage: calculatedPercentage,
-      volume_liters: calculatedVolume,
-      trr_hours: trrHours,
-      timestamp: now
-    };
-
-    const newRecord = new Telemetry(telemetryToSave);
-    const saved = await newRecord.save();
-    console.log("[MongoDB] Guardado en Atlas con ID:", saved._id);
-
-    lastTelemetry = saved;
-
-    wss.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(saved));
-      }
-    });
-  } catch (err) {
-    console.error("[Error MongoDB/MQTT]:", err.message);
-  }
-});
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`[Servidor] AQUA-PREDICT escuchando en el puerto ${PORT}`);
-});
+        reply
