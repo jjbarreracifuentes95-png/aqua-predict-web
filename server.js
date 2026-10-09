@@ -227,4 +227,107 @@ app.post("/api/chat", async (req, res) => {
           reply = `🟢 **Estado Normal:** El nivel del tanque es óptimo (${porcentaje}%). Semáforo en VERDE.`;
         }
       } else {
-        reply
+        reply = `Entendido. Te informo que el tanque está al **${porcentaje}%** (${volumen}L) con una reserva estimada de **${trr} hrs**.`;
+      }
+    }
+
+    res.json({ reply });
+  } catch (error) {
+    console.error("[Chat API Error]:", error);
+    res.status(500).json({ reply: "Ocurrió un error al consultar la base de datos." });
+  }
+});
+
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ noServer: true });
+
+server.on("upgrade", (request, socket, head) => {
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit("connection", ws, request);
+  });
+});
+
+// CLIENTE MQTT Y LÓGICA EN TIEMPO REAL
+const MQTT_BROKER = process.env.MQTT_BROKER || "broker.hivemq.com";
+const MQTT_TOPIC = process.env.MQTT_TOPIC || "aquapredict/mixco/tanque1/telemetria";
+const mqttClient = mqtt.connect(`mqtt://${MQTT_BROKER}:1883`);
+
+mqttClient.on("connect", () => {
+  console.log("[MQTT] Conectado exitosamente a HiveMQ");
+  mqttClient.subscribe(MQTT_TOPIC);
+});
+
+mqttClient.on("message", async (topic, message) => {
+  try {
+    const parsedData = JSON.parse(message.toString());
+    console.log("[MQTT] Lectura recibida:", parsedData);
+
+    const rawDistance = Number(parsedData.distance_cm) || 0;
+
+    // --- CÁLCULO AJUSTADO ---
+    let waterHeight = TANK_HEIGHT_CM - (rawDistance + SENSOR_OFFSET_CM);
+    if (waterHeight < 0) waterHeight = 0;
+    if (waterHeight > TANK_HEIGHT_CM) waterHeight = TANK_HEIGHT_CM;
+
+    const calculatedPercentage = Number(((waterHeight / TANK_HEIGHT_CM) * 100).toFixed(1));
+    const calculatedVolume = Number(((calculatedPercentage / 100) * MAX_VOLUME_LITERS).toFixed(3));
+
+    const now = new Date();
+    let trrHours = Number((calculatedVolume / 2.0).toFixed(1)); 
+
+    // Lógica Predictiva (TRR)
+    if (lastTelemetry && lastTelemetry.volume_liters > calculatedVolume) {
+      const volumeDelta = lastTelemetry.volume_liters - calculatedVolume;
+      const timeDeltaHours = (now - new Date(lastTelemetry.timestamp)) / (1000 * 60 * 60);
+
+      if (timeDeltaHours > 0 && volumeDelta > 0) {
+        const consumptionRate = volumeDelta / timeDeltaHours;
+        trrHours = Number((calculatedVolume / consumptionRate).toFixed(1));
+      }
+    }
+
+    // --- EVALUACIÓN Y ENVÍO DE ALERTAS POR TELEGRAM ---
+    const nowMs = Date.now();
+    if (calculatedPercentage < 20 && (nowMs - lastAlertTime > 30 * 60 * 1000)) {
+      sendTelegramAlert(
+        `🚨 *¡ALERTA CRÍTICA DE AGUA - AQUAPREDICT!*\n\n` +
+        `El nivel del tanque en *Mixco* ha bajado al *${calculatedPercentage}%* (${calculatedVolume} L).\n` +
+        `⏱️ *Reserva estimada:* ${trrHours} hrs.\n\n` +
+        `Por favor, verifica la bomba o el suministro de agua.`
+      );
+      lastAlertTime = nowMs;
+    }
+
+    const telemetryToSave = {
+      device_id: parsedData.device_id || "ESP32_MIXCO_01",
+      distance_cm: rawDistance,
+      percentage: calculatedPercentage,
+      volume_liters: calculatedVolume,
+      trr_hours: trrHours,
+      timestamp: now
+    };
+
+    const newRecord = new Telemetry(telemetryToSave);
+    const saved = await newRecord.save();
+    console.log("[MongoDB] Guardado en Atlas con ID:", saved._id);
+
+    lastTelemetry = saved;
+
+    wss.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(saved));
+      }
+    });
+  } catch (err) {
+    console.error("[Error MongoDB/MQTT]:", err.message);
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`[Servidor] AQUA-PREDICT escuchando en el puerto ${PORT}`);
+});
