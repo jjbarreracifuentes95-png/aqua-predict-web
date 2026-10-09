@@ -15,7 +15,7 @@ const app = express();
 // ==========================================
 const TANK_HEIGHT_CM = 170.0;    // Altura útil del tanque
 const SENSOR_OFFSET_CM = 10.00;   // Distancia del sensor al nivel máximo (offset)
-const MAX_VOLUME_LITERS = 500.00; // Capacidad máxima (1.75 Litros)
+const MAX_VOLUME_LITERS = 50.00; // Capacidad máxima (50 Litros)
 
 app.use(cors({
   origin: "*",
@@ -68,6 +68,55 @@ app.get("/api/telemetry/history", async (req, res) => {
   }
 });
 
+// ==========================================
+// ENDPOINT API PARA EL ASISTENTE VIRTUAL (CHAT)
+// ==========================================
+app.post("/api/chat", async (req, res) => {
+  try {
+    const { message } = req.body;
+    const userMsg = (message || "").toLowerCase();
+
+    // Obtener la última lectura guardada en Atlas
+    const lastData = await Telemetry.findOne().sort({ timestamp: -1 });
+
+    let reply = "No tengo lecturas del tanque registradas en este momento.";
+
+    if (lastData) {
+      const porcentaje = lastData.percentage;
+      const volumen = lastData.volume_liters;
+      const trr = lastData.trr_hours;
+      const distancia = lastData.distance_cm;
+
+      if (userMsg.includes("hola") || userMsg.includes("buenas")) {
+        reply = "¡Hola! Soy AquaBot. Puedo informarte sobre el nivel del agua, volumen actual, reserva estimada (TRR) o alertas del sistema.";
+      } else if (userMsg.includes("nivel") || userMsg.includes("porcentaje") || userMsg.includes("cuanto agua")) {
+        reply = `El nivel actual del tanque es del **${porcentaje}%** (${volumen} Litros).`;
+      } else if (userMsg.includes("volumen") || userMsg.includes("litro")) {
+        reply = `El tanque cuenta actualmente con **${volumen} L** de agua disponible.`;
+      } else if (userMsg.includes("tiempo") || userMsg.includes("reserva") || userMsg.includes("trr") || userMsg.includes("dura")) {
+        reply = `Según las proyecciones de consumo, la reserva estimada durará aproximadamente **${trr} horas**.`;
+      } else if (userMsg.includes("distancia") || userMsg.includes("sensor")) {
+        reply = `La distancia actual medida por el sensor es de **${distancia} cm**.`;
+      } else if (userMsg.includes("alerta") || userMsg.includes("estado") || userMsg.includes("fuga") || userMsg.includes("semaforo")) {
+        if (porcentaje < 20) {
+          reply = `⚠️ **¡Alerta Crítica!** El nivel está por debajo del 20% (${porcentaje}%). El semáforo está en ROJO.`;
+        } else if (porcentaje <= 50) {
+          reply = `🟡 **Advertencia:** El nivel está entre el 20% y 50% (${porcentaje}%). Semáforo en AMARILLO.`;
+        } else {
+          reply = `🟢 **Estado Normal:** El nivel del tanque es óptimo (${porcentaje}%). Semáforo en VERDE.`;
+        }
+      } else {
+        reply = `Entendido. Te informo que el tanque está al **${porcentaje}%** (${volumen}L) con una reserva estimada de **${trr} hrs**.`;
+      }
+    }
+
+    res.json({ reply });
+  } catch (error) {
+    console.error("[Chat API Error]:", error);
+    res.status(500).json({ reply: "Ocurrió un error al consultar la base de datos." });
+  }
+});
+
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
@@ -98,8 +147,8 @@ mqttClient.on("message", async (topic, message) => {
 
     const rawDistance = Number(parsedData.distance_cm) || 0;
 
-    // --- CÁLCULO AJUSTADO (17cm / 2.5cm offset / 1.75L) ---
-    let waterHeight = TANK_HEIGHT_CM - (rawDistance - SENSOR_OFFSET_CM);
+    // --- CÁLCULO AJUSTADO ---
+    let waterHeight = TANK_HEIGHT_CM - (rawDistance + SENSOR_OFFSET_CM);
     if (waterHeight < 0) waterHeight = 0;
     if (waterHeight > TANK_HEIGHT_CM) waterHeight = TANK_HEIGHT_CM;
 
