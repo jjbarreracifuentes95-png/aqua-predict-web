@@ -4,8 +4,8 @@ const Telemetry = require("../models/Telemetry");
 const { sendTelegramAlert } = require("./telegramService");
 
 const TANK_HEIGHT_CM = 170.0;
-const SENSOR_OFFSET_CM = 10.00;
-const MAX_VOLUME_LITERS = 50.00;
+const SENSOR_OFFSET_CM = 5.00;
+const MAX_VOLUME_LITERS = 5416.20;
 
 let lastTelemetry = null;
 let lastAlertTime = 0;
